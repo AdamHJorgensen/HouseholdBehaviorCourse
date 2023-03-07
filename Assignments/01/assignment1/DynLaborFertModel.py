@@ -40,6 +40,7 @@ class DynLaborFertModelClass(EconModelClass):
 
         # children
         par.p_birth = 0.1
+        par.childcost = 0.
         
         # spouse
         par.spouse_base = 0. #0.1
@@ -133,7 +134,7 @@ class DynLaborFertModelClass(EconModelClass):
                         if t==par.T-1: # last period
                             obj = lambda x: self.obj_last(x[0],assets,capital,kids)
 
-                            constr = lambda x: self.cons_last(x[0],assets,capital)
+                            constr = lambda x: self.cons_last(x[0],assets,capital, kids)
                             nlc = NonlinearConstraint(constr, lb=0.0, ub=np.inf,keep_feasible=True) #Question: Does this ensure we are on pareto frontier?
 
                             # call optimizer
@@ -144,7 +145,7 @@ class DynLaborFertModelClass(EconModelClass):
                             res = minimize(obj,init_h,bounds=((0.0,np.inf),),constraints=nlc,method='trust-constr')
 
                             # store results
-                            sol.c[idx] = self.cons_last(res.x[0],assets,capital)
+                            sol.c[idx] = self.cons_last(res.x[0],assets,capital, kids)
                             sol.h[idx] = res.x[0]
                             sol.V[idx] = -res.fun
 
@@ -173,15 +174,15 @@ class DynLaborFertModelClass(EconModelClass):
                             sol.V[idx] = -res.fun
 
     # last period
-    def cons_last(self,hours,assets,capital):
+    def cons_last(self,hours,assets,capital, kids):
         par = self.par
 
-        income = self.income_func(capital,hours, par.T-1)
+        income = self.income_func(capital,hours, kids, par.T-1)
         cons = assets + income
         return cons
 
     def obj_last(self,hours,assets,capital,kids):
-        cons = self.cons_last(hours,assets,capital)
+        cons = self.cons_last(hours,assets,capital, kids)
         return - self.util(cons,hours,kids)    
 
     # earlier periods
@@ -204,7 +205,7 @@ class DynLaborFertModelClass(EconModelClass):
         util = self.util(cons,hours,kids)
         
         # d. *expected* continuation value from savings
-        income = self.income_func(capital,hours, t)
+        income = self.income_func(capital,hours, kids, t)
         a_next = (1.0+par.r)*(assets + income - cons)
         k_next = capital + hours
 
@@ -248,11 +249,11 @@ class DynLaborFertModelClass(EconModelClass):
         
         return par.spouse_base + par.spouse_time * t
     
-    def income_func(self, capital, hours, t):
+    def income_func(self, capital, hours, kids, t):
         # Total income
         par = self.par
         
-        return self.wage_func(capital, t) * hours + self.spouse(t)
+        return self.wage_func(capital, t) * hours + self.spouse(t) - par.childcost * (kids > 0)
 
     ##############
     # Simulation #
@@ -280,7 +281,7 @@ class DynLaborFertModelClass(EconModelClass):
 
                 # iii. store next-period states
                 if t<par.simT-1:
-                    income = self.income_func(sim.k[i,t],sim.h[i,t], t)
+                    income = self.income_func(sim.k[i,t],sim.h[i,t], sim.n[i,t], t)
                     sim.a[i,t+1] = (1+par.r)*(sim.a[i,t] + income - sim.c[i,t])
                     sim.k[i,t+1] = sim.k[i,t] + sim.h[i,t]
 
