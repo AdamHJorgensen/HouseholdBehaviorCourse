@@ -8,6 +8,8 @@ from EconModel import EconModelClass
 from consav.grids import nonlinspace
 from consav.linear_interp import interp_2d
 
+import matplotlib.pyplot as plt
+
 class DynLaborFertModelClass(EconModelClass):
 
     def settings(self):
@@ -38,6 +40,10 @@ class DynLaborFertModelClass(EconModelClass):
 
         # children
         par.p_birth = 0.1
+        
+        # spouse
+        par.spouse_base = 0. #0.1
+        par.spouse_time = 0 #0.01
 
         # saving
         par.r = 0.02 # interest rate
@@ -170,7 +176,7 @@ class DynLaborFertModelClass(EconModelClass):
     def cons_last(self,hours,assets,capital):
         par = self.par
 
-        income = self.wage_func(capital,par.T-1) * hours
+        income = self.income_func(capital,hours, par.T-1)
         cons = assets + income
         return cons
 
@@ -198,7 +204,7 @@ class DynLaborFertModelClass(EconModelClass):
         util = self.util(cons,hours,kids)
         
         # d. *expected* continuation value from savings
-        income = self.wage_func(capital,t) * hours
+        income = self.income_func(capital,hours, t)
         a_next = (1.0+par.r)*(assets + income - cons)
         k_next = capital + hours
 
@@ -235,6 +241,18 @@ class DynLaborFertModelClass(EconModelClass):
         par = self.par
 
         return (1.0 - par.tau )* par.w_vec[t] * (1.0 + par.alpha * capital)
+    
+    def spouse(self, t):
+        # Spause's income
+        par = self.par
+        
+        return par.spouse_base + par.spouse_time * t
+    
+    def income_func(self, capital, hours, t):
+        # Total income
+        par = self.par
+        
+        return self.wage_func(capital, t) * hours + self.spouse(t)
 
     ##############
     # Simulation #
@@ -262,7 +280,7 @@ class DynLaborFertModelClass(EconModelClass):
 
                 # iii. store next-period states
                 if t<par.simT-1:
-                    income = self.wage_func(sim.k[i,t],t)*sim.h[i,t]
+                    income = self.income_func(sim.k[i,t],sim.h[i,t], t)
                     sim.a[i,t+1] = (1+par.r)*(sim.a[i,t] + income - sim.c[i,t])
                     sim.k[i,t+1] = sim.k[i,t] + sim.h[i,t]
 
@@ -271,5 +289,63 @@ class DynLaborFertModelClass(EconModelClass):
                         birth = 1
                     sim.n[i,t+1] = sim.n[i,t] + birth
                     
+        sim.time_since_birth = self.get_birth_time()
+                    
+    def get_birth_time(self):
+        
+        # a. unpack
+        par = self.par
+        sim = self.sim
+        
+        # b. Calculate birth times
+        birth = np.zeros(sim.n.shape,dtype=np.int_)
+        birth[:,1:] = (sim.n[:,1:] - sim.n[:,:-1]) > 0
 
+        # c. Calculate time since birth
+        periods = np.tile([t for t in range(par.simT)],(par.simN,1))
+        time_of_birth = np.max(periods * birth, axis=1)
+
+        I = time_of_birth>0
+        time_of_birth[~I] = 1000 # never has a child
+        time_of_birth = np.transpose(np.tile(time_of_birth , (par.simT,1)))
+
+        time_since_birth = periods - time_of_birth
+        
+        return time_since_birth
+    
+    def plot_event_study(self, min_time = -8, max_time = 8):
+        
+        # a. unpack
+        sim = self.sim
+        
+        # b. Calculate effect of birth
+        # i. Make grid
+        event_grid = np.arange(min_time,max_time+1)
+
+        # ii. calculate average outcome across time since birth
+        event_hours = np.nan + np.zeros(event_grid.size)
+        for t,time in enumerate(event_grid):
+            event_hours[t] = np.mean(sim.h[sim.time_since_birth==time])
+
+        # iii. relative to period before birth
+        event_hours_rel = event_hours - event_hours[event_grid==-1]
+        
+        # c. Plot
+        fig, ax = plt.subplots()
+        ax.scatter(event_grid,event_hours_rel)
+        ax.hlines(y=0,xmin=event_grid[0],xmax=event_grid[-1],color='gray')
+        ax.vlines(x=-0.5,ymin=np.nanmin(event_hours_rel),ymax=np.nanmax(event_hours_rel),color='red')
+        ax.set(xlabel='Time since birth',ylabel=f'Hours worked (rel. to -1)',xticks=event_grid)
+        fig.show()
+                    
+    def plot_behavior(self): 
+        # a. unpack
+        par = self.par
+        sim = self.sim
+        
+        # b. Plot
+        for var in ('c','a','h','n'):
+            fig, ax = plt.subplots()
+            ax.scatter(range(par.simT),np.mean(getattr(sim,var),axis=0),label='Simulated')
+            ax.set(xlabel='period, t',ylabel=f'Avg. {var}',xticks=range(par.simT))
 
