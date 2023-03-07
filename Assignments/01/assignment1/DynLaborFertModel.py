@@ -43,6 +43,7 @@ class DynLaborFertModelClass(EconModelClass):
         par.childcost = 0.
         
         # spouse
+        par.p_spouse = 1. #0.8
         par.spouse_base = 0. #0.1
         par.spouse_time = 0 #0.01
 
@@ -58,6 +59,8 @@ class DynLaborFertModelClass(EconModelClass):
         par.Nk = 20 #30 # number of grid points in wealth grid    
 
         par.Nn = 2 # number of children #Question: Is max children not 1? (from problem formulation)
+        
+        par.Ns = 2 # number of spouses
 
         # simulation
         par.simT = par.T # number of periods
@@ -82,9 +85,12 @@ class DynLaborFertModelClass(EconModelClass):
 
         # c. number of children grid
         par.n_grid = np.arange(par.Nn)
+        
+        # spouse grid
+        par.s_grid = np.arange(par.Ns)
 
         # d. solution arrays
-        shape = (par.T,par.Nn,par.Na,par.Nk)
+        shape = (par.T,par.Nn,par.Ns, par.Na,par.Nk)
         sol.c = np.nan + np.zeros(shape)
         sol.h = np.nan + np.zeros(shape)
         sol.V = np.nan + np.zeros(shape)
@@ -127,66 +133,67 @@ class DynLaborFertModelClass(EconModelClass):
             for i_n,kids in enumerate(par.n_grid):
                 for i_a,assets in enumerate(par.a_grid):
                     for i_k,capital in enumerate(par.k_grid):
-                        idx = (t,i_n,i_a,i_k)
+                        for i_s, spouse in enumerate(par.s_grid):
+                            idx = (t,i_n,i_s,i_a,i_k)
 
-                        # ii. find optimal consumption and hours at this level of wealth in this period t.
+                            # ii. find optimal consumption and hours at this level of wealth in this period t.
 
-                        if t==par.T-1: # last period
-                            obj = lambda x: self.obj_last(x[0],assets,capital,kids)
+                            if t==par.T-1: # last period
+                                obj = lambda x: self.obj_last(x[0],assets,capital,kids, spouse)
 
-                            constr = lambda x: self.cons_last(x[0],assets,capital, kids)
-                            nlc = NonlinearConstraint(constr, lb=0.0, ub=np.inf,keep_feasible=True) #Question: Does this ensure we are on pareto frontier?
+                                constr = lambda x: self.cons_last(x[0],assets,capital, kids, spouse)
+                                nlc = NonlinearConstraint(constr, lb=0.0, ub=np.inf,keep_feasible=True) #Question: Does this ensure we are on pareto frontier?
 
-                            # call optimizer
-                            hours_min = - assets / self.wage_func(capital,t) + 1.0e-5 # minimum amout of hours that ensures positive consumption
-                            hours_min = np.maximum(hours_min,2.0)
-                            init_h = np.array([hours_min]) if i_a==0 else np.array([sol.h[t,i_n,i_a-1,i_k]]) # initial guess on optimal hours
+                                # call optimizer
+                                hours_min = - assets / self.wage_func(capital,t) + 1.0e-5 # minimum amout of hours that ensures positive consumption
+                                hours_min = np.maximum(hours_min,2.0)
+                                init_h = np.array([hours_min]) if i_a==0 else np.array([sol.h[t,i_n,i_s,i_a-1,i_k]]) # initial guess on optimal hours
 
-                            res = minimize(obj,init_h,bounds=((0.0,np.inf),),constraints=nlc,method='trust-constr')
+                                res = minimize(obj,init_h,bounds=((0.0,np.inf),),constraints=nlc,method='trust-constr')
 
-                            # store results
-                            sol.c[idx] = self.cons_last(res.x[0],assets,capital, kids)
-                            sol.h[idx] = res.x[0]
-                            sol.V[idx] = -res.fun
+                                # store results
+                                sol.c[idx] = self.cons_last(res.x[0],assets,capital, kids, spouse)
+                                sol.h[idx] = res.x[0]
+                                sol.V[idx] = -res.fun
 
-                        else:
+                            else:
+                                
+                                # objective function: negative since we minimize
+                                obj = lambda x: - self.value_of_choice(x[0],x[1],assets,capital,kids, spouse, t)  
+
+                                # bounds on consumption 
+                                lb_c = 0.000001 # avoid dividing with zero
+                                ub_c = np.inf
+
+                                # bounds on hours
+                                lb_h = 0.0
+                                ub_h = np.inf 
+
+                                bounds = ((lb_c,ub_c),(lb_h,ub_h))
+                    
+                                # call optimizer
+                                init = np.array([lb_c,1.0]) if (i_n == 0 & i_s == 0 & i_a==0 & i_k==0) else res.x  # initial guess on optimal consumption and hours
+                                res = minimize(obj,init,bounds=bounds,method='L-BFGS-B') 
                             
-                            # objective function: negative since we minimize
-                            obj = lambda x: - self.value_of_choice(x[0],x[1],assets,capital,kids,t)  
-
-                            # bounds on consumption 
-                            lb_c = 0.000001 # avoid dividing with zero
-                            ub_c = np.inf
-
-                            # bounds on hours
-                            lb_h = 0.0
-                            ub_h = np.inf 
-
-                            bounds = ((lb_c,ub_c),(lb_h,ub_h))
-                
-                            # call optimizer
-                            init = np.array([lb_c,1.0]) if (i_n == 0 & i_a==0 & i_k==0) else res.x  # initial guess on optimal consumption and hours
-                            res = minimize(obj,init,bounds=bounds,method='L-BFGS-B') 
-                        
-                            # store results
-                            sol.c[idx] = res.x[0]
-                            sol.h[idx] = res.x[1]
-                            sol.V[idx] = -res.fun
+                                # store results
+                                sol.c[idx] = res.x[0]
+                                sol.h[idx] = res.x[1]
+                                sol.V[idx] = -res.fun
 
     # last period
-    def cons_last(self,hours,assets,capital, kids):
+    def cons_last(self,hours,assets,capital, kids, spouse):
         par = self.par
 
-        income = self.income_func(capital,hours, kids, par.T-1)
+        income = self.income_func(capital,hours, kids, spouse, par.T-1)
         cons = assets + income
         return cons
 
-    def obj_last(self,hours,assets,capital,kids):
-        cons = self.cons_last(hours,assets,capital, kids)
+    def obj_last(self,hours,assets,capital,kids, spouse):
+        cons = self.cons_last(hours,assets,capital, kids, spouse)
         return - self.util(cons,hours,kids)    
 
     # earlier periods
-    def value_of_choice(self,cons,hours,assets,capital,kids,t):
+    def value_of_choice(self,cons,hours,assets,capital,kids, spouse, t):
 
         # a. unpack
         par = self.par
@@ -201,30 +208,47 @@ class DynLaborFertModelClass(EconModelClass):
             penalty += hours*1_000.0
             hours = 0.0
 
-        # c. utility from consumption
+        # c. Utility and income
+        # i. utility from consumption and income
         util = self.util(cons,hours,kids)
         
-        # d. *expected* continuation value from savings
-        income = self.income_func(capital,hours, kids, t)
+        # ii. Income today
+        income = self.income_func(capital,hours, kids, spouse, t)
         a_next = (1.0+par.r)*(assets + income - cons)
         k_next = capital + hours
-
-        # no birth
+        
+        # d. *expected* continuation value from savings
+        # i. no birth and no spouse
         kids_next = kids
-        V_next = sol.V[t+1,kids_next]
-        V_next_no_birth = interp_2d(par.a_grid,par.k_grid,V_next,a_next,k_next)
-
-        # birth
-        if (kids>=(par.Nn-1)): #Question: why -1
+        spouse_next = 0
+        V_next = sol.V[t+1,kids_next, spouse_next]
+        V_next_no_birth_no_spouse = interp_2d(par.a_grid,par.k_grid,V_next,a_next,k_next)
+        
+        # ii. birth and no spouse - CAN'T HAPPEN
+        V_next_birth_no_spouse = V_next_no_birth_no_spouse
+            
+        # iii. no birth and spouse     
+        kids_next = kids
+        spouse_next = 1
+        V_next = sol.V[t+1,kids_next, spouse_next]
+        V_next_no_birth_spouse = interp_2d(par.a_grid,par.k_grid,V_next,a_next,k_next)
+        
+        # iv. birth and spouse
+        if (kids>=(par.Nn-1)):
             # cannot have more children
-            V_next_birth = V_next_no_birth
+            V_next_birth_spouse = V_next_no_birth_spouse
 
         else:
             kids_next = kids + 1
-            V_next = sol.V[t+1,kids_next]
-            V_next_birth = interp_2d(par.a_grid,par.k_grid,V_next,a_next,k_next)
+            spouse_next = 1
+            V_next = sol.V[t+1,kids_next, spouse_next]
+            V_next_birth_spouse = interp_2d(par.a_grid,par.k_grid,V_next,a_next,k_next)
 
-        EV_next = par.p_birth * V_next_birth + (1-par.p_birth)*V_next_no_birth
+        # v. Expected value
+        EV_next = par.p_birth * par.p_spouse        * V_next_birth_spouse \
+                + (1-par.p_birth) * par.p_spouse    * V_next_no_birth_spouse \
+                + par.p_birth * (1-par.p_spouse)    * V_next_birth_no_spouse \
+                + (1-par.p_birth) * (1-par.p_spouse)* V_next_no_birth_no_spouse
 
         # e. return value of choice (including penalty)
         return util + par.rho*EV_next + penalty
@@ -243,17 +267,17 @@ class DynLaborFertModelClass(EconModelClass):
 
         return (1.0 - par.tau )* par.w_vec[t] * (1.0 + par.alpha * capital)
     
-    def spouse(self, t):
+    def spouse_inc(self, t):
         # Spause's income
         par = self.par
         
         return par.spouse_base + par.spouse_time * t
     
-    def income_func(self, capital, hours, kids, t):
+    def income_func(self, capital, hours, kids, spouse, t):
         # Total income
         par = self.par
         
-        return self.wage_func(capital, t) * hours + self.spouse(t) - par.childcost * (kids > 0)
+        return self.wage_func(capital, t) * hours + self.spouse_inc(t) * (spouse == 1) - par.childcost * (kids > 0)
 
     ##############
     # Simulation #
