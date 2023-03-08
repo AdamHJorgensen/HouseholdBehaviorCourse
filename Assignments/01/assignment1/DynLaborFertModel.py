@@ -64,7 +64,7 @@ class DynLaborFertModelClass(EconModelClass):
 
         # simulation
         par.simT = par.T # number of periods
-        par.simN = 1_000 # number of individuals
+        par.simN = 100_000 # number of individuals
 
 
     def allocate(self):
@@ -102,15 +102,18 @@ class DynLaborFertModelClass(EconModelClass):
         sim.a = np.nan + np.zeros(shape)
         sim.k = np.nan + np.zeros(shape)
         sim.n = np.zeros(shape,dtype=np.int_)
+        sim.s = np.zeros(shape,dtype=np.int_)
 
         # f. draws used to simulate child arrival
         np.random.seed(9210)
-        sim.draws_uniform = np.random.uniform(size=shape)
+        sim.draws_uniform_child  = np.random.uniform(size=shape)
+        sim.draws_uniform_spouse = np.random.uniform(size=shape)
 
         # g. initialization
         sim.a_init = np.zeros(par.simN)
         sim.k_init = np.zeros(par.simN)
         sim.n_init = np.zeros(par.simN,dtype=np.int_)
+        sim.s_init = np.random.choice(par.s_grid, p=[1-par.p_spouse,par.p_spouse], size=par.simN)
 
         # h. vector of wages. Used for simulating elasticities
         par.w_vec = par.w * np.ones(par.T)
@@ -145,7 +148,7 @@ class DynLaborFertModelClass(EconModelClass):
                                 nlc = NonlinearConstraint(constr, lb=0.0, ub=np.inf,keep_feasible=True) #Question: Does this ensure we are on pareto frontier?
 
                                 # call optimizer
-                                hours_min = - assets / self.wage_func(capital,t) + 1.0e-5 # minimum amout of hours that ensures positive consumption
+                                hours_min = - (assets + self.spouse_inc(spouse, t) - par.childcost * (kids > 0)) / self.wage_func(capital,t) + 1.0e-5 # minimum amout of hours that ensures positive consumption
                                 hours_min = np.maximum(hours_min,2.0)
                                 init_h = np.array([hours_min]) if i_a==0 else np.array([sol.h[t,i_n,i_s,i_a-1,i_k]]) # initial guess on optimal hours
 
@@ -267,17 +270,20 @@ class DynLaborFertModelClass(EconModelClass):
 
         return (1.0 - par.tau )* par.w_vec[t] * (1.0 + par.alpha * capital)
     
-    def spouse_inc(self, t):
+    def spouse_inc(self, spouse, t):
         # Spause's income
         par = self.par
         
-        return par.spouse_base + par.spouse_time * t
+        if spouse == 1:
+            return par.spouse_base + par.spouse_time * t
+        else:
+            return 0.0
     
     def income_func(self, capital, hours, kids, spouse, t):
         # Total income
         par = self.par
         
-        return self.wage_func(capital, t) * hours + self.spouse_inc(t) * (spouse == 1) - par.childcost * (kids > 0)
+        return self.wage_func(capital, t) * hours + self.spouse_inc(spouse, t) - par.childcost * (kids > 0)
 
     ##############
     # Simulation #
@@ -293,26 +299,36 @@ class DynLaborFertModelClass(EconModelClass):
 
             # i. initialize states
             sim.n[i,0] = sim.n_init[i]
+            sim.s[i,0] = sim.s_init[i]
             sim.a[i,0] = sim.a_init[i]
             sim.k[i,0] = sim.k_init[i]
 
             for t in range(par.simT):
 
                 # ii. interpolate optimal consumption and hours
-                idx_sol = (t,sim.n[i,t])
+                idx_sol = (t,sim.n[i,t], sim.s[i,t])
                 sim.c[i,t] = interp_2d(par.a_grid,par.k_grid,sol.c[idx_sol],sim.a[i,t],sim.k[i,t])
                 sim.h[i,t] = interp_2d(par.a_grid,par.k_grid,sol.h[idx_sol],sim.a[i,t],sim.k[i,t])
 
                 # iii. store next-period states
                 if t<par.simT-1:
-                    income = self.income_func(sim.k[i,t],sim.h[i,t], sim.n[i,t], t)
+                    #Income, asset and human capital
+                    income = self.income_func(sim.k[i,t],sim.h[i,t], sim.n[i,t], sim.s[i,t], t)
                     sim.a[i,t+1] = (1+par.r)*(sim.a[i,t] + income - sim.c[i,t])
                     sim.k[i,t+1] = sim.k[i,t] + sim.h[i,t]
 
+                    #Children
                     birth = 0 
-                    if ((sim.draws_uniform[i,t] <= par.p_birth) & (sim.n[i,t]<(par.Nn-1))):
+                    if ((sim.draws_uniform_child[i,t] <= par.p_birth) & (sim.n[i,t]<(par.Nn-1)) & (sim.s[i,t]==1)):
                         birth = 1
                     sim.n[i,t+1] = sim.n[i,t] + birth
+                    
+                    #Spouse
+                    sim.s[i,t+1] = 0
+                    if sim.draws_uniform_child[i,t] <= par.p_spouse:
+                        sim.s[i,t+1] = 1
+                        
+
                     
         sim.time_since_birth = self.get_birth_time()
                     

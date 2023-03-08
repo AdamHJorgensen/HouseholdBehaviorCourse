@@ -50,7 +50,7 @@ class DynLaborFertModelClass(EconModelClass):
         par.k_max = 20.0 # maximum point in wealth grid
         par.Nk = 20 #30 # number of grid points in wealth grid    
 
-        par.Nn = 2 # number of children #Question: Is max children not 1? (from problem formulation)
+        par.Nn = 2 # number of children 
 
         # simulation
         par.simT = par.T # number of periods
@@ -133,7 +133,7 @@ class DynLaborFertModelClass(EconModelClass):
                             # call optimizer
                             hours_min = - assets / self.wage_func(capital,t) + 1.0e-5 # minimum amout of hours that ensures positive consumption
                             hours_min = np.maximum(hours_min,2.0)
-                            init_h = np.array([hours_min]) if i_a==0 else np.array([sol.h[t,i_n,i_a-1,i_k]]) # initial guess on optimal hours
+                            init_h = np.array([hours_min]) if i_a==0 else np.array([sol.h[t,i_n,i_a-1,i_k]]) # initial guess on optimal hours #Question: why use previous period?
 
                             res = minimize(obj,init_h,bounds=((0.0,np.inf),),constraints=nlc,method='trust-constr')
 
@@ -208,7 +208,7 @@ class DynLaborFertModelClass(EconModelClass):
         V_next_no_birth = interp_2d(par.a_grid,par.k_grid,V_next,a_next,k_next)
 
         # birth
-        if (kids>=(par.Nn-1)): #Question: why -1
+        if (kids>=(par.Nn-1)):
             # cannot have more children
             V_next_birth = V_next_no_birth
 
