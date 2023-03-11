@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.optimize import minimize,  NonlinearConstraint
 import warnings
-warnings.filterwarnings("ignore", message="delta_grad == 0.0. Check if the approximated function is linear.") # turn of annoying warning
+#warnings.filterwarnings("ignore", message="delta_grad == 0.0. Check if the approximated function is linear.") # turn of annoying warning
 
 from EconModel import EconModelClass
 
@@ -53,18 +53,18 @@ class DynLaborFertModelClass(EconModelClass):
         # grids
         par.a_max = 5.0 # maximum point in wealth grid
         par.a_min = -10.0 # minimum point in wealth grid
-        par.Na = 50 #70 # number of grid points in wealth grid 
+        par.Na = 70 # number of grid points in wealth grid 
         
-        par.k_max = 20.0 # maximum point in wealth grid
-        par.Nk = 20 #30 # number of grid points in wealth grid    
+        par.k_max = 20.0 # maximum point in capital grid
+        par.Nk = 20 # number of grid points in capital grid    
 
-        par.Nn = 2 # number of children #Question: Is max children not 1? (from problem formulation)
+        par.Nn = 2 # number of children
         
         par.Ns = 2 # number of spouses
 
         # simulation
         par.simT = par.T # number of periods
-        par.simN = 100_000 # number of individuals
+        par.simN = 1_000 # number of individuals
 
 
     def allocate(self):
@@ -137,7 +137,16 @@ class DynLaborFertModelClass(EconModelClass):
                 for i_a,assets in enumerate(par.a_grid):
                     for i_k,capital in enumerate(par.k_grid):
                         for i_s, spouse in enumerate(par.s_grid):
+                            #Set index
                             idx = (t,i_n,i_s,i_a,i_k)
+                            
+                            #Skip if deterministic spouse (always or never a spouse)
+                            if (par.p_spouse == 1.) & (spouse == 0):
+                                # store results
+                                sol.c[idx] = 0.
+                                sol.h[idx] = 0.
+                                sol.V[idx] = 0.
+                                continue
 
                             # ii. find optimal consumption and hours at this level of wealth in this period t.
 
@@ -148,7 +157,7 @@ class DynLaborFertModelClass(EconModelClass):
                                 nlc = NonlinearConstraint(constr, lb=0.0, ub=np.inf,keep_feasible=True) #Question: Does this ensure we are on pareto frontier?
 
                                 # call optimizer
-                                hours_min = - (assets + self.spouse_inc(spouse, t) - par.childcost * (kids > 0)) / self.wage_func(capital,t) + 1.0e-5 # minimum amout of hours that ensures positive consumption
+                                hours_min = - (assets + self.spouse_inc(spouse, t) - par.childcost * (kids > 0)) / (self.wage_func(capital,t) + 1.0e-8) + 1.0e-5 # minimum amout of hours that ensures positive consumption
                                 hours_min = np.maximum(hours_min,2.0)
                                 init_h = np.array([hours_min]) if i_a==0 else np.array([sol.h[t,i_n,i_s,i_a-1,i_k]]) # initial guess on optimal hours
 
@@ -221,14 +230,19 @@ class DynLaborFertModelClass(EconModelClass):
         k_next = capital + hours
         
         # d. *expected* continuation value from savings
-        # i. no birth and no spouse
-        kids_next = kids
-        spouse_next = 0
-        V_next = sol.V[t+1,kids_next, spouse_next]
-        V_next_no_birth_no_spouse = interp_2d(par.a_grid,par.k_grid,V_next,a_next,k_next)
-        
-        # ii. birth and no spouse - CAN'T HAPPEN
-        V_next_birth_no_spouse = V_next_no_birth_no_spouse
+        # Only calculate no spouse options if spouse is not deterministic
+        if par.p_spouse == 1.:
+            # i. no birth and no spouse
+            kids_next = kids
+            spouse_next = 0
+            V_next = sol.V[t+1,kids_next, spouse_next]
+            V_next_no_birth_no_spouse = interp_2d(par.a_grid,par.k_grid,V_next,a_next,k_next)
+            
+            # ii. birth and no spouse - CAN'T HAPPEN
+            V_next_birth_no_spouse = V_next_no_birth_no_spouse
+        else: #Set to zero if deterministic, because probability is zero anyway
+            V_next_no_birth_no_spouse   = 0.
+            V_next_birth_no_spouse      = 0.
             
         # iii. no birth and spouse     
         kids_next = kids
@@ -325,7 +339,7 @@ class DynLaborFertModelClass(EconModelClass):
                     
                     #Spouse
                     sim.s[i,t+1] = 0
-                    if sim.draws_uniform_child[i,t] <= par.p_spouse:
+                    if sim.draws_uniform_spouse[i,t] <= par.p_spouse:
                         sim.s[i,t+1] = 1
                         
 
