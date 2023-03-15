@@ -1,5 +1,6 @@
 import numpy as np
-from scipy.optimize import minimize,  NonlinearConstraint
+from scipy.optimize import minimize, NonlinearConstraint
+from scipy.interpolate import RegularGridInterpolator
 import warnings
 #warnings.filterwarnings("ignore", message="delta_grad == 0.0. Check if the approximated function is linear.") # turn of annoying warning
 
@@ -14,7 +15,7 @@ class DynLaborFertModelClass(EconModelClass):
 
     def settings(self):
         """ fundamental settings """
-
+        self.savefolder = 'models'
         pass
 
     def setup(self):
@@ -51,9 +52,9 @@ class DynLaborFertModelClass(EconModelClass):
         par.r = 0.02 # interest rate
 
         # grids
-        par.a_max = 5.0 # maximum point in wealth grid
+        par.a_max = 0. # maximum point in wealth grid
         par.a_min = -10.0 # minimum point in wealth grid
-        par.Na = 70 # number of grid points in wealth grid 
+        par.Na = 50 # number of grid points in wealth grid 
         
         par.k_max = 20.0 # maximum point in capital grid
         par.Nk = 20 # number of grid points in capital grid    
@@ -78,7 +79,7 @@ class DynLaborFertModelClass(EconModelClass):
         par.simT = par.T
         
         # a. asset grid
-        par.a_grid = nonlinspace(par.a_min,par.a_max,par.Na,1.1)
+        par.a_grid = - nonlinspace(-par.a_max,-par.a_min,par.Na,1.2)[::-1]
 
         # b. human capital grid
         par.k_grid = nonlinspace(0.0,par.k_max,par.Nk,1.1)
@@ -131,6 +132,7 @@ class DynLaborFertModelClass(EconModelClass):
         
         # c. loop backwards (over all periods)
         for t in reversed(range(par.T)):
+            #print('solving period',t,'of',par.T-1)
 
             # i. loop over state variables: number of children, human capital and wealth in beginning of period
             for i_n,kids in enumerate(par.n_grid):
@@ -154,7 +156,7 @@ class DynLaborFertModelClass(EconModelClass):
                                 obj = lambda x: self.obj_last(x[0],assets,capital,kids, spouse)
 
                                 constr = lambda x: self.cons_last(x[0],assets,capital, kids, spouse)
-                                nlc = NonlinearConstraint(constr, lb=0.0, ub=np.inf,keep_feasible=True) #Question: Does this ensure we are on pareto frontier?
+                                nlc = NonlinearConstraint(constr, lb=0.0, ub=np.inf, keep_feasible=True) #Question: Does this ensure we are on pareto frontier?
 
                                 # call optimizer
                                 hours_min = - (assets + self.spouse_inc(spouse, t) - par.childcost * (kids > 0)) / (self.wage_func(capital,t) + 1.0e-8) + 1.0e-5 # minimum amout of hours that ensures positive consumption
@@ -231,7 +233,7 @@ class DynLaborFertModelClass(EconModelClass):
         
         # d. *expected* continuation value from savings
         # Only calculate no spouse options if spouse is not deterministic
-        if par.p_spouse == 1.:
+        if par.p_spouse != 1.:
             # i. no birth and no spouse
             kids_next = kids
             spouse_next = 0
@@ -298,7 +300,18 @@ class DynLaborFertModelClass(EconModelClass):
         par = self.par
         
         return self.wage_func(capital, t) * hours + self.spouse_inc(spouse, t) - par.childcost * (kids > 0)
-
+    
+    def s_interp_2d(self,grid1,grid2,values,points1,points2, method='cubic'):
+        # Interpolate 2d array
+        par = self.par
+        sol = self.sol
+        
+        # Set up interpolater
+        interp = RegularGridInterpolator((grid1,grid2),values,method=method,bounds_error=False,fill_value=None)
+        
+        # Interpolate
+        return interp(np.array([points1,points2]).T)
+    
     ##############
     # Simulation #
     def simulate(self):
@@ -399,8 +412,28 @@ class DynLaborFertModelClass(EconModelClass):
         sim = self.sim
         
         # b. Plot
+        ax = {}
+        fig, ((ax['c'],ax['a']),(ax['h'],ax['n']))  = plt.subplots(2,2)
         for var in ('c','a','h','n'):
-            fig, ax = plt.subplots()
-            ax.scatter(range(par.simT),np.mean(getattr(sim,var),axis=0),label='Simulated')
-            ax.set(xlabel='period, t',ylabel=f'Avg. {var}',xticks=range(par.simT))
-
+            ax[var].scatter(range(par.simT),np.mean(getattr(sim,var),axis=0),label='Simulated')
+            ax[var].set(xlabel='period, t',ylabel=f'Avg. {var}',xticks=range(par.simT))
+        fig.tight_layout()
+        
+    def plot_policy(self,T):
+        # a. unpack
+        par = self.par
+        sol = self.sol
+        a_mesh, k_mesh = np.meshgrid(par.a_grid,par.k_grid, indexing='ij')
+        
+        # b. Plot
+        fig = plt.figure()
+        ax = plt.axes(projection = '3d')
+        ax.plot_surface(a_mesh,k_mesh,sol.c[T,1,1],cmap='viridis',edgecolor='none')
+        fig.show()
+        
+        # b. Plot
+        fig = plt.figure()
+        ax = plt.axes(projection = '3d')
+        ax.plot_surface(k_mesh,a_mesh,sol.h[T,1,1],cmap='viridis',edgecolor='none')
+        fig.show()
+        
