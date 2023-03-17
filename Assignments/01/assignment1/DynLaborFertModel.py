@@ -54,7 +54,7 @@ class DynLaborFertModelClass(EconModelClass):
         # grids
         par.a_max = 0. # maximum point in wealth grid
         par.a_min = -10.0 # minimum point in wealth grid
-        par.Na = 100 # number of grid points in wealth grid 
+        par.Na = 80 # number of grid points in wealth grid 
         
         par.k_max = 20.0 # maximum point in capital grid
         par.Nk = 20 # number of grid points in capital grid    
