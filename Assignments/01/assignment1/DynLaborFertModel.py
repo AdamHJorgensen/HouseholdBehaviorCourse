@@ -54,7 +54,7 @@ class DynLaborFertModelClass(EconModelClass):
         # grids
         par.a_max = 0. # maximum point in wealth grid
         par.a_min = -10.0 # minimum point in wealth grid
-        par.Na = 50 # number of grid points in wealth grid 
+        par.Na = 100 # number of grid points in wealth grid 
         
         par.k_max = 20.0 # maximum point in capital grid
         par.Nk = 20 # number of grid points in capital grid    
@@ -404,22 +404,33 @@ class DynLaborFertModelClass(EconModelClass):
         ax.hlines(y=0,xmin=event_grid[0],xmax=event_grid[-1],color='gray')
         ax.vlines(x=-0.5,ymin=np.nanmin(event_hours_rel),ymax=np.nanmax(event_hours_rel),color='red')
         ax.set(xlabel='Time since birth',ylabel=f'Hours worked (rel. to -1)',xticks=event_grid)
-        fig.show()
+        
+        fig.savefig(f'figures/{self.name}_event.png')
                     
     def plot_behavior(self): 
         # a. unpack
         par = self.par
         sim = self.sim
         
+        #Make conditions
+        unconditional = np.ones(sim.n.shape,dtype=bool)
+        with_child = sim.n>0
+        without_child = sim.n==0
+        
         # b. Plot
         ax = {}
         fig, ((ax['c'],ax['a']),(ax['h'],ax['n']))  = plt.subplots(2,2)
         for var in ('c','a','h','n'):
-            ax[var].scatter(range(par.simT),np.mean(getattr(sim,var),axis=0),label='Simulated')
+            ax[var].plot(range(par.simT),np.nanmean(np.where(unconditional  ,getattr(sim,var),np.nan),axis=0),label='Unconditional')
+            ax[var].plot(range(par.simT),np.nanmean(np.where(with_child     ,getattr(sim,var),np.nan),axis=0),label='With child')
+            ax[var].plot(range(par.simT),np.nanmean(np.where(without_child  ,getattr(sim,var),np.nan),axis=0),label='Without child')
             ax[var].set(xlabel='period, t',ylabel=f'Avg. {var}',xticks=range(par.simT))
+            if var=='c':
+                ax[var].legend()
         fig.tight_layout()
+        fig.savefig(f'figures/{self.name}_behavior.png')
         
-    def plot_policy(self,T):
+    def plot_policy(self,T,n=1,s=1):
         # a. unpack
         par = self.par
         sol = self.sol
@@ -427,13 +438,18 @@ class DynLaborFertModelClass(EconModelClass):
         
         # b. Plot
         fig = plt.figure()
-        ax = plt.axes(projection = '3d')
-        ax.plot_surface(a_mesh,k_mesh,sol.c[T,1,1],cmap='viridis',edgecolor='none')
-        fig.show()
+        # ax1 = fig.add_subplot(121,projection='3d')
+        # ax1.plot_surface(a_mesh,k_mesh,sol.c[T,n,s],cmap='viridis',edgecolor='none')
+        # ax1.set_title('Consumption')
         
         # b. Plot
-        fig = plt.figure()
-        ax = plt.axes(projection = '3d')
-        ax.plot_surface(k_mesh,a_mesh,sol.h[T,1,1],cmap='viridis',edgecolor='none')
-        fig.show()
+        ax2 = plt.axes(projection = '3d')
+        #ax2 = fig.add_subplot(122,projection='3d')
+        ax2.plot_surface(k_mesh,a_mesh,sol.h[T,n,s],cmap='viridis',edgecolor='none')
+        ax2.set_xlabel('k')
+        ax2.set_ylabel('a')
+        ax2.set_title('Hours worked')
+        
+        #fig.tight_layout()
+        fig.savefig(f'figures/{self.name}_policy_T{T}_n{n}_s{s}.png')
         

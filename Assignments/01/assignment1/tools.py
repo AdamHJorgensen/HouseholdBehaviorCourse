@@ -47,12 +47,12 @@ def marshall_long(modelbank, id,dtau=0.01, print_figure = True, output=False):
     #c. Plot  
     if print_figure:
         fig, ax = plt.subplots()
-        ax.plot(range(par.simT),marshall_total*(1/dtau),label='total')
-        ax.plot(range(par.simT),marshall_child*(1/dtau),label='child')
-        ax.plot(range(par.simT),marshall_nochild*(1/dtau),label='nochild')
+        ax.plot(range(par.simT),marshall_total*(1/dtau),label='Unconditional')
+        ax.plot(range(par.simT),marshall_child*(1/dtau),label='With child')
+        ax.plot(range(par.simT),marshall_nochild*(1/dtau),label='Without child')
         ax.set(xlabel='period, t',ylabel=f'Marshall elasticities',xticks=range(par.simT))
         ax.legend()
-        fig.show()
+        fig.savefig(f'figures/marshall_long_{id}.png')
     
     #4. Output
     if output:
@@ -91,13 +91,61 @@ def marshall_short(modelbank, id, dtau=0.01, print_figure = True, output = False
     #3. Plot  
     if print_figure:
         fig, ax = plt.subplots()
-        ax.plot(range(par.simT),marshall_total*(1/dtau),label='total')
-        ax.plot(range(par.simT),marshall_child*(1/dtau),label='child')
-        ax.plot(range(par.simT),marshall_nochild*(1/dtau),label='nochild')
+        ax.plot(range(par.simT),marshall_total*(1/dtau),label='Unconditional')
+        ax.plot(range(par.simT),marshall_child*(1/dtau),label='With child')
+        ax.plot(range(par.simT),marshall_nochild*(1/dtau),label='Without child')
         ax.set(xlabel='period, t',ylabel=f'Marshall elasticities',xticks=range(par.simT))
         ax.legend()
-        fig.show()
+        fig.savefig(f'figures/marshall_short_{id}.png')
     
     #4. Output 
     if output:
         return marshall_total, marshall_child, marshall_nochild
+    
+def plot_compare_behavior(modelbank, id_list, names):
+    '''Plot the policy functions for a list of models'''
+    
+    #a. Setup figure
+    ax = {}
+    fig, ((ax['c'],ax['a']),(ax['h'],ax['n']))  = plt.subplots(2,2)
+    fig.tight_layout()
+    
+    #b. Loop over models
+    for id in id_list:
+        #i. Unpack
+        par = modelbank[id]['baseline'].par
+        sim = modelbank[id]['baseline'].sim
+        
+        #ii. Loop over behavior
+        for var in ('c','a','h','n'):
+            ax[var].plot(range(par.simT),np.mean(getattr(sim,var),axis=0))
+            ax[var].set(xlabel='period, t',ylabel=f'Avg. {var}',xticks=range(par.simT))
+            
+    #Add legend
+    fig.legend(names, loc='upper left', bbox_to_anchor=(0.05, 0.97), ncol=1)
+    fig.savefig(f'figures/behavior_{id_list[-1]}.png')
+    
+    
+def plot_compare_marshall(modelbank, id_list, names, dtau):
+    '''Plot the policy functions for a list of models'''
+    
+    #a. Setup figure
+    ax = {}
+    fig, ax = plt.subplots(1,1)
+    fig.tight_layout()
+    
+    #b. Loop over models
+    for id in id_list:
+        #i. Unpack
+        par = modelbank[id]['baseline'].par
+        sim = modelbank[id]['baseline'].sim
+        
+        #ii. Get Marshall elasticities
+        marshall_total, _, _ = marshall_long(modelbank, id, dtau=dtau, print_figure=False, output=True)
+        
+        ax.plot(range(par.simT),marshall_total)
+            
+    #Figure settings
+    ax.set(xlabel='period, t',ylabel=f'Marshall elasticities',xticks=range(par.simT))
+    fig.legend(names, loc='lower left', bbox_to_anchor=(0.07, 0.07), ncol=1)
+    fig.savefig(f'figures/marshall_{id_list[-1]}.png')
