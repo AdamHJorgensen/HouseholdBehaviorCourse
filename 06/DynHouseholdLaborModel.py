@@ -36,6 +36,7 @@ class DynHouseholdLaborModelClass(EconModelClass):
         par.wage_const_2 = np.log(10_000.0) # constant, women
         par.wage_K_1 = 0.1 # return on human capital, men
         par.wage_K_2 = 0.1 # return on human capital, women
+        par.NL_income = 0.0 # non-labor income
 
         par.delta = 0.1 # depreciation in human capital
 
@@ -121,7 +122,7 @@ class DynHouseholdLaborModelClass(EconModelClass):
                     if i_k1>0: 
                         init_h[0] = sol.h1[t,i_k1-1,i_k2]
                     if i_k2>0: 
-                        init_h[1] = sol.h1[t,i_k1,i_k2-1]
+                        init_h[1] = sol.h2[t,i_k1,i_k2-1]
 
                     res = minimize(obj,init_h,bounds=bounds) 
 
@@ -152,8 +153,8 @@ class DynHouseholdLaborModelClass(EconModelClass):
     def consumption(self,hours1,hours2,capital1,capital2):
         par = self.par
 
-        income1 = self.wage_func(capital1,1) * hours1
-        income2 = self.wage_func(capital2,2) * hours2
+        income1 = self.wage_func(capital1,1) * hours1 + par.NL_income
+        income2 = self.wage_func(capital2,2) * hours2 + par.NL_income
         income_hh = income1+income2
 
         if par.joint_tax:
@@ -186,7 +187,7 @@ class DynHouseholdLaborModelClass(EconModelClass):
 
         cons = self.consumption(hours1,hours2,capital1,capital2)
 
-        util_cons = 2*(cons)**(1.0+par.eta) / (1.0+par.eta)
+        util_cons = 2*(cons/2)**(1.0+par.eta) / (1.0+par.eta)
         util_hours1 = par.rho_1*(hours1)**(1.0+par.gamma) / (1.0+par.gamma)
         util_hours2 = par.rho_2*(hours2)**(1.0+par.gamma) / (1.0+par.gamma)
 
